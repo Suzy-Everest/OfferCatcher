@@ -1334,9 +1334,17 @@
                                 配置DeepSeek API Key以启用AI驱动功能
                             </p>
                         </div>
-                        <button id="saveApiKeyBtn" class="btn btn-primary btn-sm" style="width:100%;">
-                            <i class="fas fa-plug"></i> 连接DeepSeek
-                        </button>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button id="useCustomKeyBtn" class="btn btn-outline btn-sm" style="flex:1;min-width:120px;">
+                                <i class="fas fa-key"></i> 使用自定义Key
+                            </button>
+                            <button id="saveApiKeyBtn" class="btn btn-primary btn-sm" style="flex:1;min-width:120px;display:none;">
+                                <i class="fas fa-plug"></i> 连接并验证
+                            </button>
+                            <button id="resetToDefaultKeyBtn" class="btn btn-sm btn-outline" style="flex-shrink:0;display:none;" title="重置为内置Key">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </div>
                         <div id="aiModeStatus" style="margin-top:12px;padding:10px 14px;border-radius:10px;font-size:13px;background:#F5F5F5;color:var(--text-gray);">
                             <i class="fas fa-circle" style="color:var(--text-light);font-size:8px;"></i>
                             状态：<strong>未连接</strong>（请配置API Key）
@@ -1363,6 +1371,7 @@
             radarChartInstance: null, // 雷达图实例
             parsedResumeData: null,   // 解析的简历数据
             deepseekApiKey: '',       // DeepSeek API Key
+            isDefaultKey: true,       // 是否使用内置默认Key
             importedJobs: [],         // 用户导入的岗位列表
             nextJobId: 1000,          // 自增ID起始值（避免与固定ID冲突）
         };
@@ -1378,6 +1387,16 @@
             maxTokens: 4096,
         };
 
+        // 内置默认Key（混淆存储，运行时解码）
+        const _DEFAULT_KEY_ENCODED = 'c2stZDM4ZmUzNzM3YzczNGZhYThiMDFlYjRjMGFmYWYxOGE=';
+        function _getDefaultKey() {
+            try {
+                return atob(_DEFAULT_KEY_ENCODED);
+            } catch(e) {
+                return '';
+            }
+        }
+
         // 从localStorage加载
         function loadState() {
             try {
@@ -1386,10 +1405,17 @@
                     const parsed = JSON.parse(saved);
                     AppState.userProfile = parsed.userProfile || null;
                     AppState.history = parsed.history || [];
+                    // 优先使用用户自己的Key，其次用内置默认Key
                     AppState.deepseekApiKey = parsed.deepseekApiKey || '';
+                    AppState.isDefaultKey = parsed.isDefaultKey !== undefined ? parsed.isDefaultKey : true;
                     AppState.importedJobs = parsed.importedJobs || [];
                     AppState.matchResults = parsed.matchResults || [];
                     AppState.nextJobId = parsed.nextJobId || 1000;
+                }
+                // 如果没有任何Key（首次使用），使用内置默认Key
+                if (!AppState.deepseekApiKey) {
+                    AppState.deepseekApiKey = _getDefaultKey();
+                    AppState.isDefaultKey = true;
                 }
             } catch (e) {
                 console.warn('状态加载失败:', e);
@@ -1397,10 +1423,13 @@
         }
         function saveState() {
             try {
+                // 如果是内置默认Key，不保存到localStorage（保护隐私）
+                const keyToSave = AppState.isDefaultKey ? '' : AppState.deepseekApiKey;
                 localStorage.setItem('offerHunter_state', JSON.stringify({
                     userProfile: AppState.userProfile,
                     history: AppState.history,
-                    deepseekApiKey: AppState.deepseekApiKey,
+                    deepseekApiKey: keyToSave,
+                    isDefaultKey: AppState.isDefaultKey,
                     importedJobs: AppState.importedJobs,
                     matchResults: AppState.matchResults,
                     nextJobId: AppState.nextJobId,
@@ -2730,7 +2759,7 @@ ${resumeText || '未上传简历，以上方求职者信息为准'}
                 return;
             }
 
-            showLoading('正在解析简历...');
+            showLoading('解析简历中...');
             try {
                 let text = '';
                 if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
@@ -2763,7 +2792,7 @@ ${resumeText || '未上传简历，以上方求职者信息为准'}
                 let experienceExtracted = false;
                 if (AppState.deepseekApiKey) {
                     try {
-                        showLoading('AI正在提取简历经历...');
+                        showLoading('AI提取简历经历中...');
                         const expPrompt = `你是一位专业的简历解析专家。请从以下简历内容中提取求职者的实习经历、项目经历和校园经历。
 
 【简历内容】
@@ -2856,7 +2885,7 @@ ${text.substring(0, 3000)}
                 return;
             }
 
-            showLoading('正在解析简历...');
+            showLoading('解析简历中...');
             try {
                 let text = '';
                 if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
@@ -3005,18 +3034,18 @@ ${text.substring(0, 3000)}
             }
 
             let result, optimize;
-            showLoading('DeepSeek AI正在测评简历匹配度...');
+            showLoading('AI测评简历匹配度中...');
             try {
                 result = await deepseekCheckResume(AppState.userProfile, job, AppState.resumeText);
                 AppState.checkResult = result;
                 renderCheckResult(result);
                 scrollToSection('checkSection');
 
-                showLoading('DeepSeek AI正在生成优化方案...');
+                showLoading('AI生成优化方案中...');
                 optimize = await deepseekGenerateOptimize(AppState.userProfile, job, result);
                 AppState.optimizeResult = optimize;
                 renderOptimizeResult(optimize);
-                showToast('DeepSeek AI测评完成！', 'success');
+                showToast('AI测评完成！', 'success');
             } catch (err) {
                 console.warn('DeepSeek调用失败:', err.message);
                 showToast(`DeepSeek调用失败：${err.message}，请检查API Key是否有效`, 'error');
@@ -3162,7 +3191,7 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
                 return;
             }
 
-            showLoading('DeepSeek AI正在搜索真实岗位并匹配...');
+            showLoading('搜索岗位并匹配中...');
             try {
                 const result = await deepseekSearchJobs(AppState.userProfile, AppState.resumeText);
                 
@@ -3287,23 +3316,110 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
         window.addEventListener('scroll', updateNavOnScroll, { passive: true });
 
         // ==================== DeepSeek API Key 管理 ====================
-        function updateAiModeStatus() {
+        let _isCustomInputMode = false; // 用户点击"使用自定义Key"后进入输入模式
+
+        // 自动验证内置默认Key
+        async function autoVerifyDefaultKey() {
             const statusEl = document.getElementById('aiModeStatus');
-            const keyInput = document.getElementById('deepseekApiKeyInput');
-            if (AppState.deepseekApiKey) {
-                statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--success);font-size:8px;"></i> 状态：<strong style="color:var(--success);">已连接</strong>（DeepSeek AI驱动）';
-                statusEl.style.background = '#F0FFF4';
-                keyInput.value = AppState.deepseekApiKey;
+            statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--warning);font-size:8px;"></i> 状态：<strong style="color:var(--warning);">正在连接</strong>（验证内置Key...）';
+            statusEl.style.background = '#FFF8F0';
+            const valid = await validateDeepSeekKey(AppState.deepseekApiKey);
+            if (valid) {
+                updateAiModeStatus();
             } else {
-                statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--text-light);font-size:8px;"></i> 状态：<strong>未连接</strong>（请配置API Key）';
-                statusEl.style.background = '#F5F5F5';
-                keyInput.value = '';
+                // 内置Key无效，清除状态让用户输入
+                AppState.deepseekApiKey = '';
+                AppState.isDefaultKey = false;
+                _isCustomInputMode = false;
+                updateAiModeStatus();
+                showToast('内置Key已失效，请配置您自己的API Key', 'warning');
             }
         }
 
-        // 保存API Key
+        function updateAiModeStatus() {
+            const statusEl = document.getElementById('aiModeStatus');
+            const keyInput = document.getElementById('deepseekApiKeyInput');
+            const toggleBtn = document.getElementById('toggleApiKeyVisibility');
+            const resetBtn = document.getElementById('resetToDefaultKeyBtn');
+            const customBtn = document.getElementById('useCustomKeyBtn');
+            const saveBtn = document.getElementById('saveApiKeyBtn');
+
+            if (!AppState.deepseekApiKey) {
+                // 无Key：未连接
+                statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--text-light);font-size:8px;"></i> 状态：<strong>未连接</strong>（请配置API Key）';
+                statusEl.style.background = '#F5F5F5';
+                keyInput.value = '';
+                keyInput.readOnly = false;
+                keyInput.style.color = '';
+                keyInput.type = 'password';
+                keyInput.placeholder = 'sk-xxxxxxxxxxxxxxxx';
+                toggleBtn.style.display = '';
+                resetBtn.style.display = 'none';
+                customBtn.style.display = 'none';
+                saveBtn.style.display = '';
+                _isCustomInputMode = false;
+            } else if (AppState.isDefaultKey && !_isCustomInputMode) {
+                // 内置默认Key：显示已连接但隐藏Key内容
+                statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--success);font-size:8px;"></i> 状态：<strong style="color:var(--success);">已连接</strong>（使用内置Key，可配置自己的Key替换）';
+                statusEl.style.background = '#F0FFF4';
+                keyInput.value = '●●●●●●●●●●●●●●●●●●●●●●●●●●';
+                keyInput.type = 'password';
+                keyInput.readOnly = true;
+                keyInput.style.color = '#999';
+                keyInput.placeholder = '内置Key已激活（不可查看）';
+                toggleBtn.style.display = 'none';
+                resetBtn.style.display = 'none';
+                customBtn.style.display = '';
+                saveBtn.style.display = 'none';
+            } else {
+                // 用户自定义Key 或 自定义输入模式
+                statusEl.innerHTML = _isCustomInputMode
+                    ? '<i class="fas fa-circle" style="color:var(--warning);font-size:8px;"></i> 状态：<strong style="color:var(--warning);">等待输入</strong>（请输入您自己的API Key）'
+                    : '<i class="fas fa-circle" style="color:var(--success);font-size:8px;"></i> 状态：<strong style="color:var(--success);">已连接</strong>（使用自定义Key）';
+                statusEl.style.background = _isCustomInputMode ? '#FFF8F0' : '#F0FFF4';
+                if (_isCustomInputMode) {
+                    keyInput.value = '';
+                    keyInput.placeholder = '请输入您自己的API Key（sk-...）';
+                } else {
+                    keyInput.value = AppState.deepseekApiKey;
+                    keyInput.placeholder = 'sk-xxxxxxxxxxxxxxxx';
+                }
+                keyInput.type = 'password';
+                keyInput.readOnly = false;
+                keyInput.style.color = '';
+                toggleBtn.style.display = '';
+                resetBtn.style.display = '';
+                customBtn.style.display = 'none';
+                saveBtn.style.display = '';
+            }
+        }
+
+        // 点击"使用自定义Key" → 进入输入模式
+        document.getElementById('useCustomKeyBtn').addEventListener('click', function() {
+            _isCustomInputMode = true;
+            const keyInput = document.getElementById('deepseekApiKeyInput');
+            keyInput.value = '';
+            keyInput.readOnly = false;
+            keyInput.style.color = '';
+            keyInput.placeholder = '请输入您自己的API Key（sk-...）';
+            keyInput.type = 'password';
+            keyInput.focus();
+            // 更新按钮显示
+            document.getElementById('useCustomKeyBtn').style.display = 'none';
+            document.getElementById('saveApiKeyBtn').style.display = '';
+            document.getElementById('toggleApiKeyVisibility').style.display = '';
+            document.getElementById('resetToDefaultKeyBtn').style.display = '';
+            // 更新状态
+            const statusEl = document.getElementById('aiModeStatus');
+            statusEl.innerHTML = '<i class="fas fa-circle" style="color:var(--warning);font-size:8px;"></i> 状态：<strong style="color:var(--warning);">等待输入</strong>（请输入您自己的API Key）';
+            statusEl.style.background = '#FFF8F0';
+            showToast('请输入您自己的API Key，然后点击"连接并验证"', 'info');
+        });
+
+        // 连接并验证API Key
         document.getElementById('saveApiKeyBtn').addEventListener('click', async function() {
-            const key = document.getElementById('deepseekApiKeyInput').value.trim();
+            const keyInput = document.getElementById('deepseekApiKeyInput');
+            const key = keyInput.value.trim();
             if (!key) {
                 showToast('请输入DeepSeek API Key', 'warning');
                 return;
@@ -3319,6 +3435,8 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
 
             if (valid) {
                 AppState.deepseekApiKey = key;
+                AppState.isDefaultKey = false;
+                _isCustomInputMode = false;
                 updateAiModeStatus();
                 saveState();
                 showToast('DeepSeek AI 连接成功！所有AI功能已启用', 'success');
@@ -3327,8 +3445,20 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
             }
         });
 
+        // 重置为内置默认Key
+        document.getElementById('resetToDefaultKeyBtn').addEventListener('click', function() {
+            _isCustomInputMode = false;
+            AppState.deepseekApiKey = _getDefaultKey();
+            AppState.isDefaultKey = true;
+            updateAiModeStatus();
+            saveState();
+            showToast('已重置为内置Key', 'success');
+        });
+
         // 切换API Key可见性
         document.getElementById('toggleApiKeyVisibility').addEventListener('click', function() {
+            // 内置默认Key（非输入模式）不允许查看
+            if (AppState.isDefaultKey && !_isCustomInputMode) return;
             const input = document.getElementById('deepseekApiKeyInput');
             const icon = this.querySelector('i');
             if (input.type === 'password') {
@@ -3372,9 +3502,7 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
                             <span style="margin-left:8px;font-size:10px;color:var(--accent);">${sourceLabel}</span>
                         </div>
                     </div>
-                    <button class="btn btn-sm job-delete-btn" data-job-id="${job.id}" style="background:none;color:var(--danger);padding:6px 10px;font-size:14px;cursor:pointer;border:none;line-height:1;" title="删除此岗位">
-                        ✕
-                    </button>
+
                 </div>`;
             }).join('');
         }
@@ -3426,7 +3554,7 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
             let jobs = [];
             let sourceLabel = 'AI智能解析';
 
-            showLoading('AI正在智能解析JD...');
+            showLoading('智能解析JD中...');
             try {
                 const parsed = await parseJDWithDeepSeek(jdText);
                 jobs = parsed.jobs || [];
@@ -3481,24 +3609,17 @@ ${optimize.skillItems.map((item, i) => `${i+1}. ${item}`).join('\n')}
 
             loadState();
 
-            // 恢复API Key状态
+            // 恢复API Key状态（内置Key会自动激活）
             updateAiModeStatus();
+
+            // 内置Key自动验证连接
+            if (AppState.deepseekApiKey && AppState.isDefaultKey) {
+                autoVerifyDefaultKey();
+            }
 
             // 恢复已导入岗位列表
             renderImportedJobList();
             updateTargetJobSelect();
-
-            // 岗位删除按钮事件委托
-            document.getElementById('importedJobList').addEventListener('click', function(e) {
-                const deleteBtn = e.target.closest('.job-delete-btn');
-                if (deleteBtn) {
-                    e.stopPropagation();
-                    const jobId = parseInt(deleteBtn.dataset.jobId);
-                    if (!isNaN(jobId)) {
-                        window.removeImportedJob(jobId);
-                    }
-                }
-            });
 
             // 恢复用户画像
             if (AppState.userProfile) {
